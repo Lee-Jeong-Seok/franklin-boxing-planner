@@ -1,0 +1,1823 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>우선순위 기반 타임 박스 플래너</title>
+    <style>
+        :root {
+            --bg-color: #f8f9fa;
+            --card-bg: #ffffff;
+            --text-color: #212529;
+            --border-color: #dee2e6;
+            --primary-color: #4da6ff;
+            --a-color: #ff4d4d;
+            --b-color: #ffaa00;
+            --c-color: #28a745;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+        }
+
+        .page-wrapper {
+            width: 100%;
+            max-width: 1200px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .container {
+            display: grid;
+            grid-template-columns: 350px 1fr;
+            gap: 20px;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* 오전/오후 텍스트 가리기 */
+        input[type="time"]::-webkit-datetime-edit-ampm-field {
+            display: none;
+        }
+
+        .panel,
+        .bottom-panel {
+            background: var(--card-bg);
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+            display: flex;
+            flex-direction: column;
+        }
+
+        h2 {
+            margin-top: 0;
+            padding-bottom: 10px;
+            border-bottom: 2px solid var(--border-color);
+            font-size: 1.2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 5px;
+            margin-bottom: 15px;
+        }
+
+        select,
+        input,
+        button {
+            padding: 8px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            font-size: 0.9rem;
+        }
+
+        input[type="text"] {
+            flex: 1;
+        }
+
+        button {
+            background-color: #212529;
+            color: white;
+            cursor: pointer;
+            border: none;
+        }
+
+        button:hover {
+            background-color: #495057;
+        }
+
+        .task-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            flex: 1;
+            overflow-y: auto;
+            max-height: 400px;
+        }
+
+        .task-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px;
+            border-bottom: 1px solid var(--border-color);
+            gap: 10px;
+            cursor: grab;
+            background: white;
+            transition: background 0.2s;
+        }
+
+        .task-item:active {
+            cursor: grabbing;
+        }
+
+        .task-item.dragging {
+            opacity: 0.5;
+            background: #f1f3f5;
+        }
+
+        .priority-badge {
+            color: white;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 0.8rem;
+        }
+
+        .p-A {
+            background-color: var(--a-color);
+        }
+
+        .p-B {
+            background-color: var(--b-color);
+        }
+
+        .p-C {
+            background-color: var(--c-color);
+        }
+
+        .task-text {
+            flex: 1;
+        }
+
+        .status-select {
+            padding: 4px;
+            font-size: 0.8rem;
+        }
+
+        .status-completed {
+            text-decoration: line-through;
+            color: #adb5bd;
+        }
+
+        .status-deferred {
+            color: #868e96;
+            font-style: italic;
+        }
+
+        .status-delegated {
+            color: #495057;
+            font-weight: 500;
+        }
+
+        .status-canceled {
+            text-decoration: line-through;
+            color: #dee2e6;
+        }
+
+        /* 메모 영역 스타일 */
+        .memo-area {
+            width: 100%;
+            box-sizing: border-box;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 10px;
+            margin-top: 15px;
+            background-color: var(--card-bg);
+            line-height: 1.5;
+            min-height: 250px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-size: 0.95rem;
+            resize: vertical;
+        }
+
+        .memo-area:focus {
+            outline: none;
+            border-color: #adb5bd;
+        }
+
+        /* 그리드 컨테이너 및 렌더링 스타일 */
+        .timebox-container {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            min-height: 650px;
+            position: relative;
+        }
+
+        .timebox-grid {
+            flex: 1;
+            display: grid;
+            /* 시간 1칸, 계획 2칸, 수행 2칸 */
+            grid-template-columns: 80px 1fr 1fr 1fr 1fr;
+            /* 헤더 1줄 + 바디 16줄 */
+            grid-template-rows: 40px repeat(16, 1fr);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            position: relative;
+            user-select: none;
+            -webkit-user-select: none;
+            background: white;
+            min-height: 600px;
+        }
+
+        .grid-header {
+            background: #f8f9fa;
+            border-bottom: 2px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.9rem;
+            font-weight: bold;
+            color: #495057;
+        }
+
+        .grid-header:not(:last-child) {
+            border-right: 1px solid var(--border-color);
+        }
+
+        /* 가운데 분리선을 좀 더 굵게 표시 */
+        .grid-header.divider-right,
+        .grid-time-cell.divider-right {
+            border-right: 2px solid #adb5bd !important;
+        }
+
+        .grid-cell {
+            border-bottom: 1px solid var(--border-color);
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        .grid-cell:nth-child(3n) {
+            border-right: none;
+        }
+
+        .grid-time-cell {
+            background: #f8f9fa;
+            color: #495057;
+            font-size: 0.9rem;
+            border-right: 1px solid var(--border-color);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .time-input {
+            width: 90%;
+            border: none;
+            background: transparent;
+            text-align: center;
+            font-size: 0.9rem;
+            color: #495057;
+            font-weight: bold;
+            padding: 0;
+            outline: none;
+        }
+
+        .grid-slot-cell {
+            border-bottom: 1px solid #e9ecef;
+            border-right: 1px solid #e9ecef;
+            transition: background-color 0.2s;
+        }
+
+        .grid-slot-hover {
+            background-color: #e7f5ff !important;
+        }
+
+        /* 타임박스 객체 스타일 */
+        .timebox-block {
+            position: relative;
+            background: white;
+            border-radius: 4px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            z-index: 10;
+            margin: 1px;
+            /* 격자선을 살짝 보이게 함 */
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            padding: 4px 8px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: box-shadow 0.2s;
+        }
+
+        .timebox-block:hover {
+            box-shadow: 0 3px 6px rgba(0, 0, 0, 0.15);
+            z-index: 15;
+        }
+
+        .tb-A {
+            border-left: 4px solid var(--a-color);
+            background: rgba(255, 77, 77, 0.05);
+            border-top: 1px solid rgba(255, 77, 77, 0.2);
+            border-right: 1px solid rgba(255, 77, 77, 0.2);
+            border-bottom: 1px solid rgba(255, 77, 77, 0.2);
+        }
+
+        .tb-B {
+            border-left: 4px solid var(--b-color);
+            background: rgba(255, 170, 0, 0.05);
+            border-top: 1px solid rgba(255, 170, 0, 0.2);
+            border-right: 1px solid rgba(255, 170, 0, 0.2);
+            border-bottom: 1px solid rgba(255, 170, 0, 0.2);
+        }
+
+        .tb-C {
+            border-left: 4px solid var(--c-color);
+            background: rgba(40, 167, 69, 0.05);
+            border-top: 1px solid rgba(40, 167, 69, 0.2);
+            border-right: 1px solid rgba(40, 167, 69, 0.2);
+            border-bottom: 1px solid rgba(40, 167, 69, 0.2);
+        }
+
+        .tb-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 2px;
+        }
+
+        .tb-title {
+            font-weight: 600;
+            color: #212529;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .tb-time {
+            font-size: 0.75rem;
+            color: #6c757d;
+        }
+
+        .btn-delete-tb {
+            background: none;
+            border: none;
+            color: #adb5bd;
+            cursor: pointer;
+            padding: 0;
+            font-size: 1rem;
+            line-height: 1;
+        }
+
+        .btn-delete-tb:hover {
+            color: var(--a-color);
+        }
+
+        /* 크기 조절 핸들 */
+        .resize-handle {
+            position: absolute;
+            z-index: 20;
+        }
+
+        .resize-handle.top {
+            top: -2px;
+            left: 6px;
+            right: 6px;
+            height: 6px;
+            cursor: ns-resize;
+        }
+
+        .resize-handle.bottom {
+            bottom: -2px;
+            left: 6px;
+            right: 6px;
+            height: 6px;
+            cursor: ns-resize;
+        }
+
+        .resize-handle.left {
+            left: -2px;
+            top: 6px;
+            bottom: 6px;
+            width: 6px;
+            cursor: ew-resize;
+        }
+
+        .resize-handle.right {
+            right: -2px;
+            top: 6px;
+            bottom: 6px;
+            width: 6px;
+            cursor: ew-resize;
+        }
+
+        .resize-handle.tl {
+            top: -2px;
+            left: -2px;
+            width: 8px;
+            height: 8px;
+            cursor: nwse-resize;
+        }
+
+        .resize-handle.tr {
+            top: -2px;
+            right: -2px;
+            width: 8px;
+            height: 8px;
+            cursor: nesw-resize;
+        }
+
+        .resize-handle.bl {
+            bottom: -2px;
+            left: -2px;
+            width: 8px;
+            height: 8px;
+            cursor: nesw-resize;
+        }
+
+        .resize-handle.br {
+            bottom: -2px;
+            right: -2px;
+            width: 8px;
+            height: 8px;
+            cursor: nwse-resize;
+        }
+
+        .dragging-block {
+            opacity: 0.8;
+            pointer-events: none;
+        }
+
+        /* 모달 스타일 */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            text-align: center;
+            max-width: 400px;
+            width: 100%;
+        }
+
+        .modal-content input {
+            width: 100%;
+            padding: 10px;
+            font-size: 1.2rem;
+            text-align: center;
+            letter-spacing: 5px;
+            margin-bottom: 20px;
+            box-sizing: border-box;
+        }
+
+        .modal-content button {
+            width: 100%;
+            padding: 10px;
+            font-size: 1rem;
+        }
+
+        /* 날짜 네비게이션 */
+        .date-nav {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .date-nav button {
+            background: transparent;
+            color: var(--text-color);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 5px 15px;
+            font-size: 1.2rem;
+        }
+
+        .date-nav button:hover {
+            background: var(--border-color);
+        }
+
+        .date-nav h1 {
+            margin: 0;
+            font-size: 1.5rem;
+            color: var(--primary-color);
+        }
+
+        .vision-modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            max-width: 800px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .vision-section {
+            margin-bottom: 25px;
+            text-align: left;
+        }
+
+        .vision-section h3 {
+            margin-top: 0;
+            color: var(--primary-color);
+            border-bottom: 2px solid var(--border-color);
+            padding-bottom: 5px;
+        }
+
+        .vision-textarea {
+            width: 100%;
+            height: 100px;
+            padding: 10px;
+            font-family: inherit;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            resize: vertical;
+        }
+
+        .vision-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .vision-actions button {
+            padding: 8px 20px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1rem;
+        }
+
+        /* 통계 모달 스타일 */
+        .stats-modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            max-width: 900px;
+            width: 95%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .stats-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            border-bottom: 2px solid var(--border-color);
+            padding-bottom: 10px;
+        }
+
+        .chart-container-row {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        .chart-box {
+            flex: 1;
+            min-width: 300px;
+            background: #f8f9fa;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 15px;
+            text-align: center;
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Firebase SDK (Compat version for simplicity without bundler) -->
+    <script src="https://www.gstatic.com/firebasejs/10.5.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.5.0/firebase-firestore-compat.js"></script>
+</head>
+
+<body>
+    <!-- PIN 모달 -->
+    <div id="pin-modal" class="modal-overlay">
+        <div class="modal-content">
+            <h2 style="justify-content: center; border: none;">보안 PIN 입력</h2>
+            <p>데이터 보호를 위해 PIN 번호를 입력하세요.<br>(처음 접속 시 설정됩니다)</p>
+            <input type="password" id="pin-input" maxlength="6" placeholder="4~6자리 숫자"
+                onkeypress="if(event.key === 'Enter') unlockApp()" title="PIN 번호">
+            <button onclick="unlockApp()">확인</button>
+        </div>
+    </div>
+
+    <!-- 비전/목표 모달 -->
+    <div id="vision-modal" class="modal-overlay" style="display: none;">
+        <div class="vision-modal-content">
+            <h2 style="text-align: center; color: var(--primary-color); margin-top: 0; border: none;">나의 사명과 비전</h2>
+
+            <div class="vision-section">
+                <h3>📜 사명 선언문 (Mission Statement)</h3>
+                <p style="font-size: 0.9rem; color: #666; margin-bottom: 5px;">내 삶의 궁극적인 목적과 존재 이유는 무엇인가요?</p>
+                <textarea id="vision-mission" class="vision-textarea"
+                    placeholder="예: 나는 세상에 긍정적인 영향을 미치고 끊임없이 성장하는 사람이 된다."></textarea>
+            </div>
+
+            <div class="vision-section">
+                <h3>💎 핵심 가치 (Core Values)</h3>
+                <p style="font-size: 0.9rem; color: #666; margin-bottom: 5px;">내가 결정을 내릴 때 가장 중요하게 생각하는 가치 3~5가지를 적어보세요.
+                </p>
+                <textarea id="vision-values" class="vision-textarea" style="height: 80px;"
+                    placeholder="예: 1. 성실성  2. 가족  3. 건강  4. 배움"></textarea>
+            </div>
+
+            <div class="vision-section">
+                <h3>🎯 장기 목표 (Long-term Goals)</h3>
+                <p style="font-size: 0.9rem; color: #666; margin-bottom: 5px;">인생 전반, 5년 후, 1년 후의 핵심 목표들을 적고 데드라인을
+                    설정하세요.</p>
+                <textarea id="vision-goals" class="vision-textarea" style="height: 120px;"
+                    placeholder="예: [2028년] 나만의 SaaS 비즈니스 월 매출 1천만원 달성&#10;[2024년] MVP 출시 및 초기 유저 100명 확보"></textarea>
+            </div>
+
+            <div class="vision-actions">
+                <button onclick="closeVisionModal()" style="background: #f1f3f5; color: #495057;">취소</button>
+                <button onclick="saveVisionData()"
+                    style="background: var(--primary-color); color: white; border-color: var(--primary-color);">저장하기</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 통계 대시보드 모달 -->
+    <div id="stats-modal" class="modal-overlay" style="display: none;">
+        <div class="stats-modal-content">
+            <div class="stats-controls">
+                <h2 style="color: var(--primary-color); margin: 0; border: none;">📊 통계 대시보드</h2>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <select id="stats-period" onchange="renderStats()"
+                        style="padding: 5px; font-size: 1rem; border-radius: 4px; border: 1px solid #ced4da;">
+                        <option value="7">최근 7일</option>
+                        <option value="30">최근 30일</option>
+                        <option value="90">최근 90일</option>
+                        <option value="all">전체 기간</option>
+                    </select>
+                    <button onclick="closeStatsModal()"
+                        style="padding: 5px 15px; background: #f1f3f5; color: #495057; border: 1px solid #ced4da; border-radius: 4px; cursor: pointer;">닫기</button>
+                </div>
+            </div>
+
+            <div class="chart-container-row">
+                <!-- 업무 완료율 (우선순위별) -->
+                <div class="chart-box">
+                    <h3 style="margin-top: 0; color: #495057;">업무 완료율 (Task Completion)</h3>
+                    <div style="position: relative; height: 250px; width: 100%;">
+                        <canvas id="completionChart"></canvas>
+                    </div>
+                </div>
+                <!-- 타임박스 실행률 (계획 vs 수행) -->
+                <div class="chart-box" style="flex: 2;">
+                    <h3 style="margin-top: 0; color: #495057;">타임박스 실행 현황 (Plan vs Exec)</h3>
+                    <div style="position: relative; height: 250px; width: 100%;">
+                        <canvas id="timeboxChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Paywall 모달 -->
+    <div id="paywall-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-content" style="max-width: 400px; text-align: center;">
+            <h2 id="paywall-title" style="color: #e03131; border: none; justify-content: center; margin-bottom: 10px;">
+                기능 제한 안내</h2>
+            <p id="paywall-desc">해당 기능은 <strong>Essential 버전(4,900원)</strong> 이상에서 이용 가능합니다.<br>횟수 제한 없는 데이터 백업/복원 혜택도
+                함께 누려보세요!</p>
+            <div style="margin-top: 20px; display: flex; gap: 10px; justify-content: center;">
+                <button onclick="document.getElementById('paywall-modal').style.display='none'"
+                    style="background: #f1f3f5; color: #495057; border: 1px solid #ced4da;">닫기</button>
+                <button
+                    onclick="document.getElementById('paywall-modal').style.display='none'; document.getElementById('license-modal').style.display='flex';"
+                    style="background: var(--primary-color);">라이선스 등록하기</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 라이선스 입력 모달 -->
+    <div id="license-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-content" style="max-width: 400px; text-align: center;">
+            <h2 style="color: var(--primary-color); border: none; justify-content: center; margin-bottom: 10px;">라이선스 키
+                인증</h2>
+            <p style="font-size: 0.9rem; margin-bottom: 20px;">결제 후 발급받은 라이선스 키를 입력해 주세요.<br><span
+                    style="color: #666;">(테스트용 임시 키: ESS-1234ABCD)</span></p>
+            <input type="text" id="license-input" placeholder="ESS-XXXXXXXX"
+                style="text-align: center; font-size: 1.1rem; text-transform: uppercase;">
+            <div style="margin-top: 20px; display: flex; gap: 10px; justify-content: center;">
+                <button onclick="document.getElementById('license-modal').style.display='none'"
+                    style="background: #f1f3f5; color: #495057; border: 1px solid #ced4da;">취소</button>
+                <button onclick="verifyLicense()" style="background: var(--primary-color);">인증하기</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="page-wrapper" style="display: none;" id="main-app">
+        <!-- 상단 컨트롤 (날짜 및 백업) -->
+        <div class="date-nav" style="position: relative;">
+            <div style="flex: 1; padding-left: 20px; display: flex; gap: 10px;">
+                <button onclick="openVisionModal()" title="나의 사명과 비전, 목표를 설정합니다"
+                    style="font-size: 0.9rem; padding: 5px 10px; cursor: pointer; font-weight: bold; color: var(--primary-color);">🌟
+                    비전 및 목표</button>
+                <button onclick="openStatsModal()" title="통계 대시보드 보기"
+                    style="font-size: 0.9rem; padding: 5px 10px; cursor: pointer; font-weight: bold; color: #495057;">📊
+                    통계</button>
+            </div>
+            <div style="display: flex; gap: 20px; align-items: center; justify-content: center;">
+                <button onclick="changeDate(-1)" title="이전 날짜">&lt;</button>
+                <h1 id="current-date-display">2023-10-27</h1>
+                <button onclick="changeDate(1)" title="다음 날짜">&gt;</button>
+            </div>
+            <div style="flex: 1; display: flex; justify-content: flex-end; gap: 10px; padding-right: 20px;">
+                <button onclick="exportData()" title="모든 데이터를 암호화하여 파일로 저장합니다"
+                    style="font-size: 0.9rem; padding: 5px 10px; cursor: pointer;">데이터 백업</button>
+                <button onclick="document.getElementById('import-file').click()" title="백업된 JSON 파일을 복원합니다"
+                    style="font-size: 0.9rem; padding: 5px 10px; cursor: pointer; background-color: #f8f9fa;">데이터
+                    복원</button>
+                <input type="file" id="import-file" style="display: none;" accept=".json" onchange="importData(event)">
+            </div>
+        </div>
+        <div class="container">
+            <!-- 왼쪽: 할일 목록 및 메모 -->
+            <div class="panel">
+                <h2>할일 목록</h2>
+                <div class="input-group">
+                    <select id="priority-input" title="우선순위 선택">
+                        <option value="A">A</option>
+                        <option value="B">B</option>
+                        <option value="C">C</option>
+                    </select>
+                    <input type="text" id="task-input" placeholder="새로운 할 일을 입력하세요" title="새로운 할 일"
+                        onkeypress="if(event.key === 'Enter') addTask()">
+                    <button onclick="addTask()">추가</button>
+                </div>
+                <ul id="task-list" class="task-list">
+                    <!-- 자바스크립트로 항목이 추가됩니다 -->
+                </ul>
+                <h2 style="margin-top: 20px;">메모</h2>
+                <textarea id="memo-area" class="memo-area" title="메모" placeholder="여기에 메모를 작성하세요..."></textarea>
+            </div>
+
+            <!-- 오른쪽: 타임 박스 -->
+            <div class="panel">
+                <h2>타임 박스</h2>
+                <div class="input-group">
+                    <input type="time" id="start-time" title="시작 시간">
+                    <input type="time" id="end-time" title="종료 시간">
+                    <select id="box-type" title="타임박스 유형">
+                        <option value="plan">계획 (Plan)</option>
+                        <option value="exec">수행 (Exec)</option>
+                    </select>
+                    <input type="text" id="box-title" placeholder="작업 또는 결합할 우선순위 입력" title="작업 제목"
+                        onkeypress="if(event.key === 'Enter') addManualTimebox()">
+                    <button onclick="addManualTimebox()">배정</button>
+                </div>
+                <div class="timebox-container">
+                    <div id="timebox-grid" class="timebox-grid">
+                        <!-- 자바스크립트로 렌더링 됩니다 -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 하단: 피드백/일기 -->
+        <div class="bottom-panel">
+            <h2>피드백 / 일기</h2>
+            <textarea id="feedback-area" class="memo-area" style="min-height: 150px; margin-top: 0;"
+                placeholder="오늘의 성과, 개선점, 내일의 목표 등을 기록하세요..." title="피드백"></textarea>
+        </div>
+    </div>
+
+    <script>
+        // --- 보안 및 데이터 관리 (Phase 1) ---
+        let cryptoKey = null;
+        let db = null;
+        let currentDate = new Date().toISOString().split('T')[0];
+
+        let tasks = [];
+        let timeboxes = [];
+        let memoData = '';
+        let feedbackData = '';
+        let gridStartTime = '06:00';
+
+        // 1. 보안 설정 및 해제 (PIN)
+        // --- Firebase 초기화 및 라이선스 관리 ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyCeem3q_4ZZri0-qejIteUKpAOTpplbvzA",
+            authDomain: "essential-boxing.firebaseapp.com",
+            projectId: "essential-boxing",
+            storageBucket: "essential-boxing.firebasestorage.app",
+            messagingSenderId: "440007395536",
+            appId: "1:440007395536:web:6ca28ecb37f53afb37f6d5",
+            measurementId: "G-LLKMQSPFXN"
+        };
+
+        // Firebase가 아직 초기화되지 않았다면 초기화
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+        const firestore = firebase.firestore();
+
+        // 기기 고유 ID 가져오기 (없으면 생성)
+        function getDeviceId() {
+            let deviceId = localStorage.getItem('deviceId');
+            if (!deviceId) {
+                deviceId = crypto.randomUUID ? crypto.randomUUID() : 'id-' + new Date().getTime() + '-' + Math.random().toString(36).substring(2);
+                localStorage.setItem('deviceId', deviceId);
+            }
+            return deviceId;
+        }
+
+        async function verifyLicense() {
+            const key = document.getElementById('license-input').value.trim();
+            if (!key) {
+                alert('라이선스 키를 입력해주세요.');
+                return;
+            }
+
+            // 테스트용 임시 키 (Firebase 설정 전에도 동작하도록)
+            if (key === 'ESS-1234ABCD') {
+                localStorage.setItem('licenseKey', key);
+                alert('테스트용 Essential 버전이 활성화되었습니다!');
+                document.getElementById('license-modal').style.display = 'none';
+                return;
+            }
+
+            // Firebase가 제대로 설정되지 않았을 경우의 예외 처리 (초기 상태)
+            if (firebaseConfig.projectId === "YOUR_PROJECT_ID") {
+                alert('Firebase가 아직 설정되지 않았습니다. 관리자가 제공한 가이드에 따라 Firebase 설정값을 입력해주세요.');
+                return;
+            }
+
+            try {
+                const licenseRef = firestore.collection('licenses').doc(key);
+                const docSnap = await licenseRef.get();
+
+                if (!docSnap.exists) {
+                    alert('올바르지 않은 라이선스 키입니다.');
+                    return;
+                }
+
+                const data = docSnap.data();
+                const deviceId = getDeviceId();
+
+                // 이미 다른 기기에서 사용 중인지 확인
+                if (data.status === 'used' && data.deviceId !== deviceId) {
+                    alert('이미 다른 기기에서 사용 중인 라이선스 키입니다.');
+                    return;
+                }
+
+                // 사용 가능하면 상태 업데이트 (자신이 사용하던 키거나 미사용 키)
+                await licenseRef.update({
+                    status: 'used',
+                    deviceId: deviceId,
+                    activatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+
+                // 로컬에 인증 정보 저장 (토큰은 uuid와 키를 결합하여 간단히 인코딩)
+                const token = btoa(key + '|' + deviceId);
+                localStorage.setItem('licenseToken', token);
+                localStorage.setItem('licenseKey', key);
+
+                alert('Essential 버전이 성공적으로 활성화되었습니다! 감사합니다.');
+                document.getElementById('license-modal').style.display = 'none';
+            } catch (error) {
+                console.error("License verification failed:", error);
+                if (error.code === 'permission-denied') {
+                    alert('라이선스 서버 접근이 거부되었습니다. Firestore 규칙 설정을 확인해주세요.');
+                } else {
+                    alert('라이선스 확인 중 오류가 발생했습니다. 네트워크 상태나 Firebase 설정을 확인해주세요.');
+                }
+            }
+        }
+
+        function showPaywall(title, desc) {
+            document.getElementById('paywall-title').textContent = title;
+            document.getElementById('paywall-desc').innerHTML = desc;
+            document.getElementById('paywall-modal').style.display = 'flex';
+        }
+
+        async function unlockApp() {
+            const pin = document.getElementById('pin-input').value;
+            if (!pin || pin.length < 4) {
+                alert('4자리 이상의 PIN을 입력하세요.');
+                return;
+            }
+
+            try {
+                // PBKDF2를 이용한 AES-GCM 키 생성
+                const enc = new TextEncoder();
+                const keyMaterial = await window.crypto.subtle.importKey(
+                    'raw', enc.encode(pin), { name: 'PBKDF2' }, false, ['deriveBits', 'deriveKey']
+                );
+                cryptoKey = await window.crypto.subtle.deriveKey(
+                    { name: 'PBKDF2', salt: enc.encode('franklin-salt'), iterations: 100000, hash: 'SHA-256' },
+                    keyMaterial, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
+                );
+
+                document.getElementById('pin-modal').style.display = 'none';
+                document.getElementById('main-app').style.display = 'flex';
+
+                await initDB();
+                await loadDataForDate(currentDate);
+                updateDateDisplay();
+            } catch (e) {
+                alert('보안 키 생성 실패: ' + e.message);
+            }
+        }
+
+        // 2. 암호화 / 복호화 유틸리티
+        async function encryptData(data) {
+            const enc = new TextEncoder();
+            const iv = window.crypto.getRandomValues(new Uint8Array(12));
+            const encrypted = await window.crypto.subtle.encrypt(
+                { name: 'AES-GCM', iv: iv }, cryptoKey, enc.encode(JSON.stringify(data))
+            );
+            return {
+                iv: Array.from(iv),
+                data: Array.from(new Uint8Array(encrypted))
+            };
+        }
+
+        async function decryptData(encryptedObj) {
+            try {
+                const iv = new Uint8Array(encryptedObj.iv);
+                const data = new Uint8Array(encryptedObj.data);
+                const decrypted = await window.crypto.subtle.decrypt(
+                    { name: 'AES-GCM', iv: iv }, cryptoKey, data
+                );
+                const dec = new TextDecoder();
+                return JSON.parse(dec.decode(decrypted));
+            } catch (e) {
+                console.error("복호화 실패 (잘못된 PIN 일수 있음)", e);
+                return null;
+            }
+        }
+
+        // 3. IndexedDB 초기화
+        function initDB() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open('FranklinPlannerDB', 1);
+                request.onupgradeneeded = (e) => {
+                    const database = e.target.result;
+                    if (!database.objectStoreNames.contains('daily_records')) {
+                        database.createObjectStore('daily_records', { keyPath: 'date' });
+                    }
+                };
+                request.onsuccess = (e) => {
+                    db = e.target.result;
+                    resolve();
+                };
+                request.onerror = (e) => reject(e);
+            });
+        }
+
+        // 4. 날짜별 데이터 로드
+        function loadDataForDate(dateStr) {
+            return new Promise((resolve) => {
+                const tx = db.transaction('daily_records', 'readonly');
+                const store = tx.objectStore('daily_records');
+                const request = store.get(dateStr);
+
+                request.onsuccess = async () => {
+                    if (request.result) {
+                        const decrypted = await decryptData(request.result.encryptedPayload);
+                        if (decrypted) {
+                            tasks = decrypted.tasks || [];
+                            timeboxes = decrypted.timeboxes || [];
+                            memoData = decrypted.memo || '';
+                            feedbackData = decrypted.feedback || '';
+                            gridStartTime = decrypted.gridStartTime || '06:00';
+                        } else {
+                            alert('데이터 복호화에 실패했습니다. 올바른 PIN인지 확인하세요.');
+                            // 빈 상태로 초기화
+                            tasks = []; timeboxes = []; memoData = ''; feedbackData = ''; gridStartTime = '06:00';
+                        }
+                    } else {
+                        // 새 날짜 데이터
+                        tasks = []; timeboxes = []; memoData = ''; feedbackData = ''; gridStartTime = '06:00';
+                    }
+
+                    // UI 반영
+                    document.getElementById('memo-area').value = memoData;
+                    document.getElementById('feedback-area').value = feedbackData;
+                    renderTasks();
+                    renderGridBackground();
+                    renderTimeboxes();
+                    resolve();
+                };
+                request.onerror = () => resolve(); // 에러시 무시하고 진행
+            });
+        }
+
+        // 5. 날짜별 데이터 저장
+        async function saveDataForDate() {
+            if (!db || !cryptoKey) return; // 보안 해제 전 저장 방지
+
+            // 현재 입력창 상태 동기화
+            memoData = document.getElementById('memo-area').value;
+            feedbackData = document.getElementById('feedback-area').value;
+
+            const payload = {
+                tasks,
+                timeboxes,
+                memo: memoData,
+                feedback: feedbackData,
+                gridStartTime
+            };
+
+            const encryptedPayload = await encryptData(payload);
+
+            const tx = db.transaction('daily_records', 'readwrite');
+            const store = tx.objectStore('daily_records');
+            store.put({
+                date: currentDate,
+                encryptedPayload: encryptedPayload
+            });
+        }
+
+        // 6. 데이터 백업 (Export)
+        function exportData() {
+            if (!db) return;
+
+            const isEssential = localStorage.getItem('licenseKey') !== null;
+            if (!isEssential) {
+                const todayBackupCountKey = 'backupCount_' + currentDate;
+                let count = parseInt(localStorage.getItem(todayBackupCountKey) || '0');
+                if (count >= 1) {
+                    showPaywall('일일 백업 한도 초과', 'Free 버전은 하루 1회 데이터 백업만 가능합니다.<br>횟수 제한 없이 안전하게 데이터를 관리하시려면 <strong>Essential 버전(4,900원)</strong>을 구매해 주세요!');
+                    return;
+                }
+                localStorage.setItem(todayBackupCountKey, (count + 1).toString());
+            }
+
+            const tx = db.transaction('daily_records', 'readonly');
+            const store = tx.objectStore('daily_records');
+            const request = store.getAll();
+
+            request.onsuccess = () => {
+                const records = request.result;
+                const backupData = {
+                    version: 1,
+                    exportDate: new Date().toISOString(),
+                    records: records // 암호화된 상태 그대로 추출
+                };
+
+                const blob = new Blob([JSON.stringify(backupData)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `franklin_planner_backup_${currentDate}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            };
+        }
+
+        // 7. 데이터 복구 (Import)
+        function importData(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const backupData = JSON.parse(e.target.result);
+                    if (!backupData.records || !Array.isArray(backupData.records)) {
+                        throw new Error("잘못된 백업 파일 형식입니다.");
+                    }
+
+                    const tx = db.transaction('daily_records', 'readwrite');
+                    const store = tx.objectStore('daily_records');
+
+                    // 기존 데이터 덮어쓰기
+                    backupData.records.forEach(record => {
+                        store.put(record);
+                    });
+
+                    tx.oncomplete = () => {
+                        alert('데이터 복구가 완료되었습니다. 현재 화면을 갱신합니다.');
+                        loadDataForDate(currentDate);
+                    };
+                    tx.onerror = () => {
+                        alert('데이터 복구 중 오류가 발생했습니다.');
+                    };
+                } catch (err) {
+                    alert('백업 파일을 읽을 수 없습니다: ' + err.message);
+                }
+
+                // 파일 입력 초기화
+                event.target.value = '';
+            };
+            reader.readAsText(file);
+        }
+
+        // 8. 비전 및 목표 (Vision Board) 로직
+        async function openVisionModal() {
+            alert("나의 사명 및 비전 작성 기능은 Unlimited 구독 버전 전용 기능입니다. (출시 준비 중)");
+            return;
+
+            if (!db || !cryptoKey) return;
+
+            const tx = db.transaction('daily_records', 'readonly');
+            const store = tx.objectStore('daily_records');
+            const request = store.get('GLOBAL_VISION');
+
+            request.onsuccess = async () => {
+                if (request.result) {
+                    const decrypted = await decryptData(request.result.encryptedPayload);
+                    if (decrypted) {
+                        document.getElementById('vision-mission').value = decrypted.mission || '';
+                        document.getElementById('vision-values').value = decrypted.values || '';
+                        document.getElementById('vision-goals').value = decrypted.goals || '';
+                    }
+                }
+                document.getElementById('vision-modal').style.display = 'flex';
+            };
+        }
+
+        function closeVisionModal() {
+            document.getElementById('vision-modal').style.display = 'none';
+        }
+
+        async function saveVisionData() {
+            if (!db || !cryptoKey) return;
+
+            const payload = {
+                mission: document.getElementById('vision-mission').value,
+                values: document.getElementById('vision-values').value,
+                goals: document.getElementById('vision-goals').value
+            };
+
+            const encryptedPayload = await encryptData(payload);
+
+            const tx = db.transaction('daily_records', 'readwrite');
+            const store = tx.objectStore('daily_records');
+            store.put({
+                date: 'GLOBAL_VISION',
+                encryptedPayload: encryptedPayload
+            });
+
+            tx.oncomplete = () => {
+                alert('나의 사명과 비전이 안전하게 암호화되어 저장되었습니다!');
+                closeVisionModal();
+            };
+            tx.onerror = () => {
+                alert('비전 데이터 저장 중 오류가 발생했습니다.');
+            };
+        }
+
+        // 9. 통계 대시보드 로직
+        let completionChartInstance = null;
+        let timeboxChartInstance = null;
+
+        function openStatsModal() {
+            document.getElementById('stats-modal').style.display = 'flex';
+            renderStats();
+        }
+
+        function closeStatsModal() {
+            document.getElementById('stats-modal').style.display = 'none';
+        }
+
+        async function renderStats() {
+            if (!db || !cryptoKey) return;
+
+            let periodStr = document.getElementById('stats-period').value;
+            const isEssential = localStorage.getItem('licenseKey') !== null;
+
+            if (periodStr === 'all' || periodStr === '90') {
+                alert("90일 및 전체 기간 통계는 Unlimited 구독 버전 전용 기능입니다. (출시 준비 중)");
+                document.getElementById('stats-period').value = isEssential ? '30' : '7';
+                return renderStats();
+            }
+
+            if (periodStr === '30' && !isEssential) {
+                document.getElementById('stats-period').value = '7';
+                showPaywall('기능 제한 안내', '30일 통계 조회 기능은 <strong>Essential 버전(4,900원)</strong> 이상에서 제공됩니다.<br>무제한 백업 혜택과 함께 이용해 보세요!');
+                return renderStats();
+            }
+
+            const daysToSub = periodStr === 'all' ? 9999 : parseInt(periodStr);
+            const now = new Date();
+            const minDateObj = new Date(now.setDate(now.getDate() - daysToSub));
+            const minDateStr = minDateObj.toISOString().split('T')[0];
+
+            const tx = db.transaction('daily_records', 'readonly');
+            const store = tx.objectStore('daily_records');
+            const request = store.getAll();
+
+            request.onsuccess = async () => {
+                const records = request.result;
+                let totalTasks = { A: 0, B: 0, C: 0 };
+                let compTasks = { A: 0, B: 0, C: 0 };
+                let totalPlanMins = 0;
+                let totalExecMins = 0;
+
+                for (const record of records) {
+                    if (record.date === 'GLOBAL_VISION') continue;
+                    if (record.date < minDateStr) continue;
+
+                    const decrypted = await decryptData(record.encryptedPayload);
+                    if (decrypted) {
+                        const tasks = decrypted.tasks || [];
+                        const timeboxes = decrypted.timeboxes || [];
+
+                        tasks.forEach(t => {
+                            if (totalTasks[t.priority] !== undefined) {
+                                totalTasks[t.priority]++;
+                                if (t.status === 'V') {
+                                    compTasks[t.priority]++;
+                                }
+                            }
+                        });
+
+                        timeboxes.forEach(tb => {
+                            const slots = tb.gridRowEnd - tb.gridRowStart;
+                            if (tb.gridColStart < 4) {
+                                totalPlanMins += slots * 30;
+                            } else {
+                                totalExecMins += slots * 30;
+                            }
+                        });
+                    }
+                }
+
+                // 차트 1: 업무 완료율 (도넛 차트)
+                const ctxComp = document.getElementById('completionChart').getContext('2d');
+                if (completionChartInstance) completionChartInstance.destroy();
+
+                const compData = [
+                    totalTasks.A ? Math.round((compTasks.A / totalTasks.A) * 100) : 0,
+                    totalTasks.B ? Math.round((compTasks.B / totalTasks.B) * 100) : 0,
+                    totalTasks.C ? Math.round((compTasks.C / totalTasks.C) * 100) : 0
+                ];
+
+                completionChartInstance = new Chart(ctxComp, {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['A (매우 중요)', 'B (중요)', 'C (보통)'],
+                        datasets: [{
+                            data: compData,
+                            backgroundColor: ['#e03131', '#f08c00', '#1c7ed6'],
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            tooltip: { callbacks: { label: (ctx) => ctx.label + ': ' + ctx.raw + '%' } }
+                        }
+                    }
+                });
+
+                // 차트 2: 타임박스 실행률 (막대 차트)
+                const ctxTimebox = document.getElementById('timeboxChart').getContext('2d');
+                if (timeboxChartInstance) timeboxChartInstance.destroy();
+
+                const planHours = (totalPlanMins / 60).toFixed(1);
+                const execHours = (totalExecMins / 60).toFixed(1);
+
+                timeboxChartInstance = new Chart(ctxTimebox, {
+                    type: 'bar',
+                    data: {
+                        labels: ['계획한 시간 (Plan)', '실제 수행 시간 (Exec)'],
+                        datasets: [{
+                            label: '시간 (Hours)',
+                            data: [planHours, execHours],
+                            backgroundColor: ['#adb5bd', '#20c997'],
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: { y: { beginAtZero: true } }
+                    }
+                });
+            };
+        }
+
+        // 10. 날짜 내비게이션
+        function changeDate(daysOffset) {
+            const dateObj = new Date(currentDate);
+            dateObj.setDate(dateObj.getDate() + daysOffset);
+            currentDate = dateObj.toISOString().split('T')[0];
+            updateDateDisplay();
+            loadDataForDate(currentDate);
+        }
+
+        function updateDateDisplay() {
+            document.getElementById('current-date-display').textContent = currentDate;
+        }
+
+        // --- 기존 이벤트 리스너 후킹 (데이터 변경 시 자동 저장) ---
+        document.getElementById('memo-area').addEventListener('input', () => saveDataForDate());
+        document.getElementById('feedback-area').addEventListener('input', () => saveDataForDate());
+
+        // --- 유틸리티 함수 ---
+
+        function getBlockTimeRange(rStart, rEnd, cStart, cEnd) {
+            // isExec is true if starting column is >= 4
+            const isExec = cStart >= 4;
+            const startStr = getSlotTime(rStart, cStart, isExec);
+
+            let endRow = rEnd - 1;
+            let endCol = cEnd - 1;
+
+            // If dragging to next row slot
+            if ((!isExec && endCol === 3) || (isExec && endCol === 5)) {
+                endRow = rEnd; // Next row start
+                endCol = isExec ? 4 : 2;
+            } else {
+                endCol = isExec ? 5 : 3;
+            }
+
+            const endStr = getSlotTime(endRow, endCol, isExec);
+            return { start: startStr, end: endStr };
+        }
+
+        function getSlotTime(rowLine, colLine, isExec = false) {
+            let mins = (rowLine - 2) * 60;
+            if (!isExec) {
+                if (colLine === 3) mins += 30;
+            } else {
+                if (colLine === 5) mins += 30;
+            }
+
+            const [baseH, baseM] = gridStartTime.split(':').map(Number);
+
+            const totalMins = mins + baseH * 60 + baseM;
+            const h = Math.floor(totalMins / 60) % 24;
+            const m = totalMins % 60;
+
+            const pad = (n) => String(n).padStart(2, '0');
+            return `${pad(h)}:${pad(m)}`;
+        }
+
+        function timeToGridCoords(startStr, endStr, isExec = false) {
+            const [baseH, baseM] = gridStartTime.split(':').map(Number);
+            const [sH, sM] = startStr.split(':').map(Number);
+            const [eH, eM] = endStr.split(':').map(Number);
+
+            let startMins = sH * 60 + sM;
+            let baseMins = baseH * 60 + baseM;
+            let endMins = eH * 60 + eM;
+
+            if (startMins < baseMins) startMins += 24 * 60;
+            if (endMins < startMins) endMins += 24 * 60;
+
+            const startSlots = Math.round((startMins - baseMins) / 30);
+            const endSlots = Math.round((endMins - baseMins) / 30);
+
+            const eSlotsAdjusted = Math.max(startSlots + 1, endSlots);
+
+            const sRow = Math.floor(startSlots / 2) + 2;
+            const colOffset = isExec ? 4 : 2;
+            const sCol = (startSlots % 2) + colOffset;
+
+            const eRowObj = Math.floor((eSlotsAdjusted - 1) / 2) + 2;
+            const eColObj = ((eSlotsAdjusted - 1) % 2) + colOffset;
+
+            return {
+                rStart: sRow,
+                rEnd: eRowObj + 1,
+                cStart: Math.min(sCol, eColObj),
+                cEnd: Math.max(sCol, eColObj) + 1
+            };
+        }
+
+        function initLegacyData() {
+            timeboxes = initialLegacyTimeboxes.map(box => {
+                const isExec = box.isExec || false;
+                const coords = timeToGridCoords(box.start, box.end, isExec);
+                return {
+                    id: box.id,
+                    priority: box.priority,
+                    title: box.title,
+                    gridRowStart: coords.rStart,
+                    gridRowEnd: coords.rEnd,
+                    gridColStart: coords.cStart,
+                    gridColEnd: coords.cEnd
+                };
+            });
+        }
+
+        // --- 할일 목록 렌더링 ---
+        function renderTasks() {
+            const listEl = document.getElementById('task-list');
+            listEl.innerHTML = '';
+
+            tasks.sort((a, b) => a.priority.localeCompare(b.priority));
+
+            tasks.forEach(task => {
+                const pCode = task.priority;
+
+                const li = document.createElement('li');
+                li.className = 'task-item';
+                li.draggable = !task.isEditing;
+                li.ondragstart = (e) => onTaskDragStart(e, task, pCode);
+                li.ondragend = (e) => { e.target.classList.remove('dragging'); };
+                li.ondblclick = () => editTask(task.id);
+
+                let textClass = 'task-text';
+                if (task.status === 'V') textClass += ' status-completed';
+                if (task.status === '→') textClass += ' status-deferred';
+                if (task.status === '←') textClass += ' status-delegated';
+                if (task.status === 'X') textClass += ' status-canceled';
+
+                if (task.isEditing) {
+                    li.innerHTML = `
+                        <select id="edit-p-${task.id}" class="status-select" title="우선순위 수정" style="margin-right: 8px;">
+                            <option value="A" ${task.priority === 'A' ? 'selected' : ''}>A</option>
+                            <option value="B" ${task.priority === 'B' ? 'selected' : ''}>B</option>
+                            <option value="C" ${task.priority === 'C' ? 'selected' : ''}>C</option>
+                        </select>
+                        <input type="text" id="edit-t-${task.id}" value="${task.text}" style="flex:1; min-width: 50px; margin-right: 8px; padding: 4px; border: 1px solid var(--border-color); border-radius: 4px;" onkeypress="if(event.key === 'Enter') saveTask(${task.id})" title="할일 내용 수정">
+                        <div style="display: flex; gap: 4px; flex-shrink: 0;">
+                            <button onclick="saveTask(${task.id})" style="padding: 4px 8px; font-size: 0.8rem; cursor: pointer; white-space: nowrap;">저장</button>
+                            <button onclick="cancelTask(${task.id})" style="padding: 4px 8px; font-size: 0.8rem; cursor: pointer; background: #f1f3f5; border: 1px solid #ced4da; color: #495057; white-space: nowrap;">취소</button>
+                        </div>
+                    `;
+                } else {
+                    li.innerHTML = `
+                    <span class="priority-badge p-${task.priority}">${pCode}</span>
+                    <span class="${textClass}">${task.text}</span>
+                    <select class="status-select" title="상태 변경" onchange="toggleStatus(${task.id}, this.value)">
+                        <option value="•" ${task.status === '•' ? 'selected' : ''}>• 진행중</option>
+                        <option value="V" ${task.status === 'V' ? 'selected' : ''}>V 완료</option>
+                        <option value="→" ${task.status === '→' ? 'selected' : ''}>→ 연기</option>
+                        <option value="←" ${task.status === '←' ? 'selected' : ''}>← 위임</option>
+                        <option value="X" ${task.status === 'X' ? 'selected' : ''}>X 취소</option>
+                    </select>
+                    `;
+                }
+                listEl.appendChild(li);
+            });
+        }
+
+        // --- 타임박스 렌더링 ---
+        function renderGridBackground() {
+            const gridEl = document.getElementById('timebox-grid');
+            gridEl.innerHTML = `
+            <div class="grid-header divider-right" style="grid-column: 1; grid-row: 1;">시간</div>
+            <div class="grid-header" style="grid-column: 2; grid-row: 1;">계획 0-30</div>
+            <div class="grid-header divider-right" style="grid-column: 3; grid-row: 1;">계획 30-60</div>
+            <div class="grid-header" style="grid-column: 4; grid-row: 1;">수행 0-30</div>
+            <div class="grid-header" style="grid-column: 5; grid-row: 1; border-right: none;">수행 30-60</div>
+        `;
+
+            for (let r = 2; r <= 17; r++) {
+                if (r === 2) {
+                    gridEl.innerHTML += `
+                    <div class="grid-time-cell divider-right" style="grid-column: 1; grid-row: ${r};">
+                        <input type="time" class="time-input" title="시간 입력" value="${gridStartTime}" onchange="updateBaseTime(this.value)">
+                    </div>
+                `;
+                } else {
+                    const rowTime = getSlotTime(r, 2, false);
+                    gridEl.innerHTML += `
+                    <div class="grid-time-cell divider-right" style="grid-column: 1; grid-row: ${r};">${rowTime}</div>
+                `;
+                }
+
+                gridEl.innerHTML += `
+                <div class="grid-slot-cell" data-r="${r}" data-c="2" style="grid-column: 2; grid-row: ${r};"
+                     ondragover="allowDrop(event)" ondragleave="dragLeave(event)" ondrop="dropTask(event, ${r}, 2)"></div>
+                <div class="grid-slot-cell divider-right" data-r="${r}" data-c="3" style="grid-column: 3; grid-row: ${r}; border-right: 2px solid #adb5bd;"
+                     ondragover="allowDrop(event)" ondragleave="dragLeave(event)" ondrop="dropTask(event, ${r}, 3)"></div>
+                <div class="grid-slot-cell" data-r="${r}" data-c="4" style="grid-column: 4; grid-row: ${r};"
+                     ondragover="allowDrop(event)" ondragleave="dragLeave(event)" ondrop="dropTask(event, ${r}, 4)"></div>
+                <div class="grid-slot-cell" data-r="${r}" data-c="5" style="grid-column: 5; grid-row: ${r}; border-right: none;"
+                     ondragover="allowDrop(event)" ondragleave="dragLeave(event)" ondrop="dropTask(event, ${r}, 5)"></div>
+            `;
+            }
+        }
+
+        function renderTimeboxes() {
+            document.querySelectorAll('.timebox-block').forEach(e => e.remove());
+
+            const gridEl = document.getElementById('timebox-grid');
+
+            timeboxes.forEach(box => {
+                const block = document.createElement('div');
+                block.className = `timebox-block tb-${box.priority || 'A'}`;
+                block.id = `tb-${box.id}`;
+                block.style.gridRow = `${box.gridRowStart} / ${box.gridRowEnd}`;
+                block.style.gridColumn = `${box.gridColStart} / ${box.gridColEnd}`;
+
+                const timeRange = getBlockTimeRange(box.gridRowStart, box.gridRowEnd, box.gridColStart, box.gridColEnd);
+
+                block.innerHTML = `
+                <div class="tb-header">
+                    <span class="tb-title">${box.title}</span>
+                    <button class="btn-delete-tb" onclick="deleteTimebox(${box.id}); event.stopPropagation();">&times;</button>
+                </div>
+                <div class="tb-time">${timeRange.start} - ${timeRange.end}</div>
+                
+                <div class="resize-handle top" data-dir="t"></div>
+                <div class="resize-handle bottom" data-dir="b"></div>
+                <div class="resize-handle left" data-dir="l"></div>
+                <div class="resize-handle right" data-dir="r"></div>
+                <div class="resize-handle tl" data-dir="tl"></div>
+                <div class="resize-handle tr" data-dir="tr"></div>
+                <div class="resize-handle bl" data-dir="bl"></div>
+                <div class="resize-handle br" data-dir="br"></div>
+            `;
+
+                block.addEventListener('mousedown', (e) => startInteraction(e, box));
+
+                gridEl.appendChild(block);
+            });
+        }
+
+        // --- 할일 드래그 앤 드롭 로직 ---
+        function onTaskDragStart(e, task, badge) {
+            e.target.classList.add('dragging');
+            const data = JSON.stringify({ id: task.id, priority: task.priority, title: `[${badge}] ${task.text}` });
+            e.dataTransfer.setData('application/json', data);
+            e.dataTransfer.effectAllowed = 'copy';
+        }
+
+        function allowDrop(e) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'copy';
+            if (e.target.classList.contains('grid-slot-cell')) {
+                e.target.classList.add('grid-slot-hover');
+            }
+        }
+
+        function dragLeave(e) {
+            if (e.target.classList.contains('grid-slot-cell')) {
+                e.target.classList.remove('grid-slot-hover');
+            }
+        }
+
+        function dropTask(e, r, c) {
+            e.preventDefault();
+            if (e.target.classList.contains('grid-slot-cell')) {
+                e.target.classList.remove('grid-slot-hover');
+            }
+
+            const dataStr = e.dataTransfer.getData('application/json');
+            if (!dataStr) return;
+
+            try {
+                const data = JSON.parse(dataStr);
+                timeboxes.push({
+                    id: Date.now(),
+                    priority: data.priority,
+                    title: data.title,
+                    gridRowStart: r,
+                    gridRowEnd: r + 1,
+                    gridColStart: c,
+                    gridColEnd: c + 1
+                });
+                saveDataForDate();
+                renderTimeboxes();
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        // --- 수동 추가 및 기타 액션 ---
+        function updateBaseTime(val) {
+            if (!val) return;
+            gridStartTime = val;
+            saveDataForDate();
+            renderGridBackground();
+            renderTimeboxes();
+        }
+
+        function addTask() {
+            const pInput = document.getElementById('priority-input').value;
+            const tInput = document.getElementById('task-input').value;
+            if (!tInput) return;
+
+            tasks.push({
+                id: Date.now(),
+                priority: pInput,
+                text: tInput,
+                status: '•'
+            });
+            saveDataForDate();
+            document.getElementById('task-input').value = '';
+            renderTasks();
+        }
+
+        function addManualTimebox() {
+            const start = document.getElementById('start-time').value;
+            const end = document.getElementById('end-time').value;
+            const title = document.getElementById('box-title').value;
+            const type = document.getElementById('box-type').value;
+            if (!start || !end || !title) {
+                alert('시작 시간, 종료 시간, 내용을 모두 입력해주세요.');
+                return;
+            }
+
+            const isExec = (type === 'exec');
+            const coords = timeToGridCoords(start, end, isExec);
+
+            let priority = 'A';
+            const match = title.match(/^\[([A-C])/i);
+            if (match) priority = match[1].toUpperCase();
+
+            timeboxes.push({
+                id: Date.now(),
+                priority: priority,
+                title: title,
+                gridRowStart: coords.rStart,
+                gridRowEnd: coords.rEnd,
+                gridColStart: coords.cStart,
+                gridColEnd: coords.cEnd
+            });
+            saveDataForDate();
+            document.getElementById('box-title').value = '';
+            renderTimeboxes();
+        }
+
+        function toggleStatus(id, newStatus) {
+            const task = tasks.find(t => t.id === id);
+            if (task) {
+                task.status = newStatus;
+                saveDataForDate();
+                renderTasks();
+            }
+        }
+
+        function editTask(id) {
+            const task = tasks.find(t => t.id === id);
+            if (task) {
+                task.isEditing = true;
+                renderTasks();
+            }
+        }
+
+        function saveTask(id) {
+            const task = tasks.find(t => t.id === id);
+            if (task) {
+                const pInput = document.getElementById(`edit-p-${id}`);
+                const tInput = document.getElementById(`edit-t-${id}`);
+                if (pInput && tInput) {
+                    task.priority = pInput.value;
+                    task.text = tInput.value;
+                }
+                task.isEditing = false;
+                saveDataForDate();
+                renderTasks();
+            }
+        }
+
+        function cancelTask(id) {
+            const task = tasks.find(t => t.id === id);
+            if (task) {
+                task.isEditing = false;
+                renderTasks();
+            }
+        }
+
+        function deleteTimebox(id) {
+            timeboxes = timeboxes.filter(b => b.id !== id);
+            saveDataForDate();
+            renderTimeboxes();
+        }
+
+        // --- 인터랙티브 (리사이즈 및 이동) 구현 ---
+        let activeInteraction = null;
+
+        function startInteraction(e, box) {
+            if (e.target.classList.contains('btn-delete-tb')) return;
+
+            e.preventDefault();
+
+            const gridEl = document.getElementById('timebox-grid');
+            const gridRect = gridEl.getBoundingClientRect();
+
+            const headerHeight = 40;
+            const bodyHeight = gridRect.height - headerHeight;
+            const rowHeight = bodyHeight / 16;
+
+            const timeColWidth = 80;
+            const colWidth = (gridRect.width - timeColWidth) / 4;
+
+            let type = 'move';
+            let dir = null;
+
+            if (e.target.classList.contains('resize-handle')) {
+                type = 'resize';
+                dir = e.target.getAttribute('data-dir');
+            }
+
+            activeInteraction = {
+                type,
+                dir,
+                box,
+                blockEl: e.currentTarget,
+                startX: e.clientX,
+                startY: e.clientY,
+                startRowStart: box.gridRowStart,
+                startRowEnd: box.gridRowEnd,
+                startColStart: box.gridColStart,
+                startColEnd: box.gridColEnd,
+                rowHeight,
+                colWidth
+            };
+
+            activeInteraction.blockEl.classList.add('dragging-block');
+
+            document.addEventListener('mousemove', onInteractionMove);
+            document.addEventListener('mouseup', onInteractionEnd);
+        }
+
+        function onInteractionMove(e) {
+            if (!activeInteraction) return;
+
+            const dx = e.clientX - activeInteraction.startX;
+            const dy = e.clientY - activeInteraction.startY;
+
+            const rowDelta = Math.round(dy / activeInteraction.rowHeight);
+            const colDelta = Math.round(dx / activeInteraction.colWidth);
+
+            let { startRowStart, startRowEnd, startColStart, startColEnd, box, type, dir } = activeInteraction;
+            let newRS = startRowStart;
+            let newRE = startRowEnd;
+            let newCS = startColStart;
+            let newCE = startColEnd;
+
+            const isExec = startColStart >= 4;
+            const minCol = isExec ? 4 : 2;
+            const maxCol = isExec ? 6 : 4;
+            const maxRow = 18;
+
+            if (type === 'resize') {
+                if (dir.includes('t')) newRS = Math.max(2, Math.min(startRowEnd - 1, startRowStart + rowDelta));
+                if (dir.includes('b')) newRE = Math.max(startRowStart + 1, Math.min(maxRow, startRowEnd + rowDelta));
+                if (dir.includes('l')) newCS = Math.max(minCol, Math.min(startColEnd - 1, startColStart + colDelta));
+                if (dir.includes('r')) newCE = Math.max(startColStart + 1, Math.min(maxCol, startColEnd + colDelta));
+            } else if (type === 'move') {
+                newRS += rowDelta;
+                newRE += rowDelta;
+                newCS += colDelta;
+                newCE += colDelta;
+
+                if (newRS < 2) { const diff = 2 - newRS; newRS += diff; newRE += diff; }
+                if (newRE > maxRow) { const diff = newRE - maxRow; newRE -= diff; newRS -= diff; }
+                if (newCS < minCol) { const diff = minCol - newCS; newCS += diff; newCE += diff; }
+                if (newCE > maxCol) { const diff = newCE - maxCol; newCE -= diff; newCS -= diff; }
+            }
+
+            const blockEl = activeInteraction.blockEl;
+            blockEl.style.gridRow = `${newRS} / ${newRE}`;
+            blockEl.style.gridColumn = `${newCS} / ${newCE}`;
+
+            const timeRange = getBlockTimeRange(newRS, newRE, newCS, newCE);
+            blockEl.querySelector('.tb-time').textContent = `${timeRange.start} - ${timeRange.end}`;
+
+            activeInteraction.temp = { newRS, newRE, newCS, newCE };
+        }
+
+        function onInteractionEnd(e) {
+            if (!activeInteraction) return;
+
+            if (activeInteraction.temp) {
+                const { newRS, newRE, newCS, newCE } = activeInteraction.temp;
+                const box = activeInteraction.box;
+                box.gridRowStart = newRS;
+                box.gridRowEnd = newRE;
+                box.gridColStart = newCS;
+                box.gridColEnd = newCE;
+            }
+
+            activeInteraction.blockEl.classList.remove('dragging-block');
+            document.removeEventListener('mousemove', onInteractionMove);
+            document.removeEventListener('mouseup', onInteractionEnd);
+            activeInteraction = null;
+
+            saveDataForDate();
+            renderTimeboxes();
+        }
+
+        // --- 초기 실행 ---
+    </script>
+</body>
+
+</html>
