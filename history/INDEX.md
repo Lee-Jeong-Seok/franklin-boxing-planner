@@ -12,6 +12,7 @@
 | **2026-06-11** | **Business Strategy** | • 3단계 비즈니스 모델(Free / Essential / Unlimited) 기획<br>• 무서버(Zero Server Cost) 수익화 전략 수립<br>• 라이선스 키 방식의 보안 취약점 분석 및 대응책 설계 | [2026-06-11.md](file:///d:/dev_apps/franklin_boxing_planner/history/2026-06-11.md) |
 | **2026-06-15** | **Phase 3 & License** | • Firebase Firestore 연동 에센셜 라이선스 시스템 구축<br>• 기기 고유 식별자(UUID) 발급 및 라이선스 키 1기기 귀속 적용<br>• 요금제별 백업 횟수 및 통계 기간 제한 Paywall 적용 완료 | [2026-06-15.md](file:///d:/dev_apps/franklin_boxing_planner/history/2026-06-15.md) |
 | **2026-08-25** | **System Integration** | • 주간 업무 보고 시스템 연계 통합 기획 및 실행계획 수립<br>• 3대 연계안 비교 및 하이브리드 브릿지 표준안 정의<br>• 개인정보 로컬 암호화 보존 및 공무 Task 양방향 데이터 파이프라인 설계 | [2026-08-25.md](file:///d:/dev_apps/franklin_boxing_planner/history/2026-08-25.md) |
+| **2026-09-03** | **Integration Dev** | • [주간 업무 가져오기] 모달 & `GET /api/tasks/my` 연동<br>• A/B/C 우선순위 지능형 자동 매핑 및 일일 할 일 등록<br>• [주간 실적 요약 생성] & 주간 Exec 시간 자동 산출<br>• `franklin_weekly_summary_bridge` 로컬 브릿지 연동 완료 | [2026-09-03.md](file:///d:/dev_apps/franklin_boxing_planner/history/2026-09-03.md) |
 
 ---
 

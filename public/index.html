@@ -603,6 +603,59 @@
             padding: 15px;
             text-align: center;
         }
+
+        /* 주간 업무 보고 연계 통합 모달 스타일 */
+        .integration-modal-content {
+            background: white;
+            padding: 24px 28px;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+            max-width: 850px;
+            width: 95%;
+            max-height: 85vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .integration-table-wrap {
+            overflow-y: auto;
+            max-height: 380px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            margin: 12px 0;
+        }
+        .integration-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.88rem;
+        }
+        .integration-table th {
+            background: #f1f3f5;
+            padding: 10px 12px;
+            position: sticky;
+            top: 0;
+            border-bottom: 2px solid var(--border-color);
+            text-align: left;
+            font-weight: 600;
+            color: #495057;
+        }
+        .integration-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid var(--border-color);
+            vertical-align: middle;
+        }
+        .integration-table tr:hover {
+            background-color: #f8f9fa;
+        }
+        .badge-priority {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 0.75rem;
+        }
+        .badge-priority-A { background: #ffe3e3; color: #e03131; }
+        .badge-priority-B { background: #fff3bf; color: #f08c00; }
+        .badge-priority-C { background: #d3f9d8; color: #2b8a3e; }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <!-- Firebase SDK (Compat version for simplicity without bundler) -->
@@ -729,16 +782,113 @@
         </div>
     </div>
 
+    <!-- 주간 업무 가져오기 모달 (Integration Modal) -->
+    <div id="weekly-tasks-modal" class="modal-overlay" style="display: none;">
+        <div class="integration-modal-content">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--border-color); padding-bottom: 12px;">
+                <h2 style="color: var(--primary-color); margin: 0; border: none; font-size: 1.25rem;">🏢 주간 업무 가져오기 (Weekly Tasks)</h2>
+                <button onclick="closeWeeklyTasksModal()" style="background: #f1f3f5; color: #495057; padding: 4px 12px; border-radius: 4px; cursor: pointer;">닫기</button>
+            </div>
+            
+            <div style="margin-top: 14px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                <label style="font-size: 0.85rem; font-weight: bold; color: #495057;">담당자 필터:</label>
+                <input type="text" id="weekly-assignee-filter" placeholder="담당자 이름 (공란 시 전체)" style="width: 140px; padding: 5px 8px; font-size: 0.85rem;">
+                <label style="font-size: 0.85rem; font-weight: bold; color: #495057;">API 주소:</label>
+                <input type="text" id="weekly-api-url" value="/api" style="width: 160px; padding: 5px 8px; font-size: 0.85rem;">
+                <button onclick="fetchWeeklyTasks()" style="background: var(--primary-color); color: white; padding: 6px 14px; font-size: 0.85rem; cursor: pointer; border-radius: 4px; border: none;">조회하기 🔄</button>
+            </div>
+
+            <div id="weekly-tasks-loading" style="display: none; padding: 25px; text-align: center; color: #868e96; font-size: 0.9rem;">
+                주간 업무 목록을 불러오는 중입니다...
+            </div>
+
+            <div class="integration-table-wrap" id="weekly-tasks-table-container">
+                <table class="integration-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 35px; text-align: center;"><input type="checkbox" id="weekly-check-all" onchange="toggleAllWeeklyTasks(this.checked)" title="전체 선택"></th>
+                            <th style="width: 120px;">업무 ID</th>
+                            <th>업무 제목</th>
+                            <th style="width: 70px; text-align: center;">우선순위</th>
+                            <th style="width: 90px;">담당자</th>
+                            <th style="width: 120px;">일정</th>
+                            <th style="width: 80px; text-align: center;">작업</th>
+                        </tr>
+                    </thead>
+                    <tbody id="weekly-tasks-body">
+                        <!-- 동적으로 로드됨 -->
+                    </tbody>
+                </table>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
+                <span id="weekly-tasks-count" style="font-size: 0.85rem; color: #868e96;">조회된 미완료 업무: 0개</span>
+                <div style="display: flex; gap: 10px;">
+                    <button onclick="closeWeeklyTasksModal()" style="background: #f1f3f5; color: #495057; padding: 8px 16px; border-radius: 4px; cursor: pointer; border: 1px solid #ced4da;">취소</button>
+                    <button onclick="importSelectedWeeklyTasks()" style="background: #1c7ed6; color: white; padding: 8px 18px; font-weight: bold; border-radius: 4px; cursor: pointer; border: none;">선택한 업무 일일 할일로 추가</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 주간 실적 요약 생성 및 브릿지 모달 -->
+    <div id="weekly-export-modal" class="modal-overlay" style="display: none;">
+        <div class="integration-modal-content" style="max-width: 680px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--border-color); padding-bottom: 12px;">
+                <h2 style="color: #2b8a3e; margin: 0; border: none; font-size: 1.25rem;">📤 주간 실적 요약 & 브릿지 동기화</h2>
+                <button onclick="closeWeeklyExportModal()" style="background: #f1f3f5; color: #495057; padding: 4px 12px; border-radius: 4px; cursor: pointer; border: 1px solid #ced4da;">닫기</button>
+            </div>
+
+            <div style="margin-top: 14px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                <label style="font-size: 0.85rem; font-weight: bold; color: #495057;">조회 기간:</label>
+                <input type="date" id="export-start-date" style="padding: 4px 8px; font-size: 0.85rem;">
+                <span>~</span>
+                <input type="date" id="export-end-date" style="padding: 4px 8px; font-size: 0.85rem;">
+                <button onclick="generateWeeklySummaryBridge()" style="background: #2b8a3e; color: white; padding: 5px 12px; font-size: 0.85rem; cursor: pointer; border-radius: 4px; border: none;">다시 계산 🔄</button>
+            </div>
+
+            <div id="export-stats-badge" style="display: flex; gap: 12px; margin: 12px 0; font-size: 0.85rem;">
+                <span style="background: #e6fcf5; color: #0ca678; padding: 4px 10px; border-radius: 6px; font-weight: bold;">완료 Task: <span id="stat-completed-count">0</span>개</span>
+                <span style="background: #e7f5ff; color: #1c7ed6; padding: 4px 10px; border-radius: 6px; font-weight: bold;">총 투입 시간: <span id="stat-total-hours">0.0</span>h</span>
+                <span style="background: #fff9db; color: #f59f00; padding: 4px 10px; border-radius: 6px; font-weight: bold;">연기/이슈: <span id="stat-deferred-count">0</span>개</span>
+            </div>
+
+            <div style="margin-top: 5px;">
+                <label style="font-size: 0.85rem; font-weight: bold; color: #495057;">금주 실적 요약 마크다운 (주간보고 실적 모달로 자동 주입):</label>
+                <textarea id="weekly-summary-result" class="memo-area" style="height: 140px; margin-top: 5px; font-family: monospace; font-size: 0.85rem;"></textarea>
+            </div>
+
+            <div style="margin-top: 10px;">
+                <label style="font-size: 0.85rem; font-weight: bold; color: #e03131;">이슈 및 지연 업무 요약 (선택):</label>
+                <textarea id="weekly-issue-result" class="memo-area" style="height: 60px; margin-top: 5px; font-family: monospace; font-size: 0.85rem;"></textarea>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 15px;">
+                <span id="bridge-save-status" style="font-size: 0.85rem; color: #2b8a3e; font-weight: bold;"></span>
+                <div style="display: flex; gap: 8px;">
+                    <button onclick="copyWeeklySummaryToClipboard()" style="background: #f1f3f5; color: #495057; padding: 8px 14px; border-radius: 4px; cursor: pointer; border: 1px solid #ced4da;">📋 클립보드 복사</button>
+                    <button onclick="saveWeeklySummaryBridge()" style="background: #2b8a3e; color: white; padding: 8px 18px; font-weight: bold; border-radius: 4px; cursor: pointer; border: none;">주간보고 시스템 브릿지에 저장 💾</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="page-wrapper" style="display: none;" id="main-app">
         <!-- 상단 컨트롤 (날짜 및 백업) -->
         <div class="date-nav" style="position: relative;">
-            <div style="flex: 1; padding-left: 20px; display: flex; gap: 10px;">
+            <div style="flex: 1; padding-left: 20px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
                 <button onclick="openVisionModal()" title="나의 사명과 비전, 목표를 설정합니다"
-                    style="font-size: 0.9rem; padding: 5px 10px; cursor: pointer; font-weight: bold; color: var(--primary-color);">🌟
+                    style="font-size: 0.85rem; padding: 5px 10px; cursor: pointer; font-weight: bold; color: var(--primary-color);">🌟
                     비전 및 목표</button>
                 <button onclick="openStatsModal()" title="통계 대시보드 보기"
-                    style="font-size: 0.9rem; padding: 5px 10px; cursor: pointer; font-weight: bold; color: #495057;">📊
+                    style="font-size: 0.85rem; padding: 5px 10px; cursor: pointer; font-weight: bold; color: #495057;">📊
                     통계</button>
+                <button onclick="openWeeklyTasksModal()" title="사내 주간 업무를 조회하여 일일 할 일로 가져옵니다"
+                    style="font-size: 0.85rem; padding: 5px 10px; cursor: pointer; font-weight: bold; background: #e7f5ff; color: #1c7ed6; border: 1px solid #74c0fc; border-radius: 4px;">🏢
+                    주간 업무 가져오기</button>
+                <button onclick="openWeeklyExportModal()" title="이번 주 플래너 실행 기록을 주간 실적 요약문으로 생성하고 로컬 브릿지에 저장합니다"
+                    style="font-size: 0.85rem; padding: 5px 10px; cursor: pointer; font-weight: bold; background: #ebfbee; color: #2b8a3e; border: 1px solid #8ce99a; border-radius: 4px;">📤
+                    주간 실적 요약 생성</button>
             </div>
             <div style="display: flex; gap: 20px; align-items: center; justify-content: center;">
                 <button onclick="changeDate(-1)" title="이전 날짜">&lt;</button>
@@ -1814,6 +1964,342 @@
 
             saveDataForDate();
             renderTimeboxes();
+        }
+
+        // =========================================================
+        // --- 주간 업무 보고 시스템 연계 통합 기능 (Integration) ---
+        // =========================================================
+        let weeklyFetchedTasks = [];
+
+        function openWeeklyTasksModal() {
+            const savedUrl = localStorage.getItem('franklin_weekly_api_url');
+            if (savedUrl) {
+                document.getElementById('weekly-api-url').value = savedUrl;
+            }
+            const savedAssignee = localStorage.getItem('franklin_weekly_assignee');
+            if (savedAssignee) {
+                document.getElementById('weekly-assignee-filter').value = savedAssignee;
+            }
+            document.getElementById('weekly-tasks-modal').style.display = 'flex';
+            fetchWeeklyTasks();
+        }
+
+        function closeWeeklyTasksModal() {
+            document.getElementById('weekly-tasks-modal').style.display = 'none';
+        }
+
+        function toggleAllWeeklyTasks(checked) {
+            const checkboxes = document.querySelectorAll('.weekly-task-check');
+            checkboxes.forEach(cb => cb.checked = checked);
+        }
+
+        async function fetchWeeklyTasks() {
+            const apiBase = document.getElementById('weekly-api-url').value.trim() || '/api';
+            const assignee = document.getElementById('weekly-assignee-filter').value.trim();
+
+            localStorage.setItem('franklin_weekly_api_url', apiBase);
+            localStorage.setItem('franklin_weekly_assignee', assignee);
+
+            const loadingEl = document.getElementById('weekly-tasks-loading');
+            const tableWrap = document.getElementById('weekly-tasks-table-container');
+            const tbody = document.getElementById('weekly-tasks-body');
+            const countEl = document.getElementById('weekly-tasks-count');
+
+            loadingEl.style.display = 'block';
+            tbody.innerHTML = '';
+            countEl.textContent = '조회 중...';
+
+            let endpoint = `${apiBase}/tasks/my`;
+            if (assignee) {
+                endpoint += `?assignee=${encodeURIComponent(assignee)}`;
+            }
+
+            try {
+                let response = null;
+                try {
+                    response = await fetch(endpoint, {
+                        headers: { 'Accept': 'application/json' }
+                    });
+                } catch (netErr) {
+                    // Fallback to relative/origin if full host failed
+                    if (!endpoint.startsWith('http')) {
+                        endpoint = window.location.origin + endpoint;
+                        response = await fetch(endpoint, {
+                            headers: { 'Accept': 'application/json' }
+                        });
+                    } else {
+                        throw netErr;
+                    }
+                }
+
+                if (!response.ok) {
+                    throw new Error(`서버 응답 오류 (HTTP ${response.status})`);
+                }
+
+                weeklyFetchedTasks = await response.json();
+                renderWeeklyTasksTable(weeklyFetchedTasks);
+            } catch (err) {
+                console.error("주간 업무 조회 실패:", err);
+                tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: #e03131; padding: 25px;">주간 업무 조회 실패: ${err.message}<br><span style="color:#868e96; font-size:0.8rem;">(API 주소 또는 사내 네트워크/로그인 세션을 확인해 주세요)</span></td></tr>`;
+                countEl.textContent = '조회 실패';
+            } finally {
+                loadingEl.style.display = 'none';
+            }
+        }
+
+        function renderWeeklyTasksTable(taskList) {
+            const tbody = document.getElementById('weekly-tasks-body');
+            const countEl = document.getElementById('weekly-tasks-count');
+            tbody.innerHTML = '';
+
+            if (!taskList || taskList.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #868e96; padding: 25px;">현재 담당으로 할당된 미완료 주간 업무가 없습니다.</td></tr>';
+                countEl.textContent = '조회된 미완료 업무: 0개';
+                return;
+            }
+
+            countEl.textContent = `조회된 미완료 업무: ${taskList.length}개`;
+
+            taskList.forEach(t => {
+                const data = t.dynamicData || {};
+                const title = data['제목'] || data['title'] || data['name'] || data['업무명'] || '제목 없음';
+                const priorityRaw = (data['우선순위'] || data['priority'] || '중').toString();
+                const assignee = data['담당자'] || data['assignee'] || '미지정';
+                const startDate = data['시작일자'] || data['시작일'] || data['start_date'] || '';
+                const endDate = data['종료일자'] || data['종료일'] || data['end_date'] || '';
+                const dateStr = (startDate || endDate) ? `${startDate} ~ ${endDate}` : '-';
+
+                let pLetter = 'B';
+                if (priorityRaw.includes('상') || priorityRaw.toUpperCase() === 'HIGH' || priorityRaw.toUpperCase() === 'A') {
+                    pLetter = 'A';
+                } else if (priorityRaw.includes('하') || priorityRaw.toUpperCase() === 'LOW' || priorityRaw.toUpperCase() === 'C') {
+                    pLetter = 'C';
+                }
+
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td style="text-align: center;"><input type="checkbox" class="weekly-task-check" data-id="${t.id}"></td>
+                    <td style="font-family: monospace; font-size: 0.8rem; color: #1c7ed6;">${t.id}</td>
+                    <td style="font-weight: 500;">${title}</td>
+                    <td style="text-align: center;"><span class="badge-priority badge-priority-${pLetter}">${pLetter} (${priorityRaw})</span></td>
+                    <td style="font-size: 0.85rem; color: #495057;">${assignee}</td>
+                    <td style="font-size: 0.8rem; color: #868e96;">${dateStr}</td>
+                    <td style="text-align: center;">
+                        <button onclick="importSingleWeeklyTask('${t.id}')" style="background: #e7f5ff; color: #1c7ed6; border: 1px solid #74c0fc; padding: 3px 8px; border-radius: 4px; font-size: 0.75rem; cursor: pointer;">+ 추가</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function importSingleWeeklyTask(taskId) {
+            const task = weeklyFetchedTasks.find(t => t.id === taskId);
+            if (!task) return;
+
+            const data = task.dynamicData || {};
+            const title = data['제목'] || data['title'] || data['name'] || data['업무명'] || '제목 없음';
+            const priorityRaw = (data['우선순위'] || data['priority'] || '중').toString();
+
+            let pLetter = 'B';
+            if (priorityRaw.includes('상') || priorityRaw.toUpperCase() === 'HIGH' || priorityRaw.toUpperCase() === 'A') {
+                pLetter = 'A';
+            } else if (priorityRaw.includes('하') || priorityRaw.toUpperCase() === 'LOW' || priorityRaw.toUpperCase() === 'C') {
+                pLetter = 'C';
+            }
+
+            const taskText = `[${task.id}] ${title}`;
+
+            // Check if already in today's task
+            const exists = tasks.some(t => t.weeklyTaskId === task.id || t.text === taskText);
+            if (exists) {
+                if (!confirm(`"${taskText}" 항목이 이미 오늘의 할 일에 있습니다. 다시 추가하시겠습니까?`)) {
+                    return;
+                }
+            }
+
+            tasks.push({
+                id: Date.now(),
+                priority: pLetter,
+                text: taskText,
+                status: '•',
+                weeklyTaskId: task.id
+            });
+
+            saveDataForDate();
+            renderTasks();
+            alert(`[${pLetter}] ${taskText}\n오늘의 할 일로 등록되었습니다!`);
+        }
+
+        function importSelectedWeeklyTasks() {
+            const checkedBoxes = document.querySelectorAll('.weekly-task-check:checked');
+            if (checkedBoxes.length === 0) {
+                alert('추가할 주간 업무를 체크박스로 선택해 주세요.');
+                return;
+            }
+
+            let addedCount = 0;
+            checkedBoxes.forEach(cb => {
+                const taskId = cb.getAttribute('data-id');
+                const task = weeklyFetchedTasks.find(t => t.id === taskId);
+                if (task) {
+                    const data = task.dynamicData || {};
+                    const title = data['제목'] || data['title'] || data['name'] || data['업무명'] || '제목 없음';
+                    const priorityRaw = (data['우선순위'] || data['priority'] || '중').toString();
+
+                    let pLetter = 'B';
+                    if (priorityRaw.includes('상') || priorityRaw.toUpperCase() === 'HIGH' || priorityRaw.toUpperCase() === 'A') {
+                        pLetter = 'A';
+                    } else if (priorityRaw.includes('하') || priorityRaw.toUpperCase() === 'LOW' || priorityRaw.toUpperCase() === 'C') {
+                        pLetter = 'C';
+                    }
+
+                    const taskText = `[${task.id}] ${title}`;
+                    tasks.push({
+                        id: Date.now() + Math.floor(Math.random() * 1000),
+                        priority: pLetter,
+                        text: taskText,
+                        status: '•',
+                        weeklyTaskId: task.id
+                    });
+                    addedCount++;
+                }
+            });
+
+            saveDataForDate();
+            renderTasks();
+            closeWeeklyTasksModal();
+            alert(`${addedCount}개의 주간 업무가 오늘의 할 일 목록에 성공적으로 등록되었습니다!`);
+        }
+
+        // --- 주간 실적 요약 생성 & 브릿지 동기화 ---
+        function openWeeklyExportModal() {
+            const cur = new Date(currentDate);
+            const dayOfWeek = cur.getDay(); // 0: Sun, 1: Mon
+            const diffToMon = (dayOfWeek === 0 ? -6 : 1) - dayOfWeek;
+            const mon = new Date(cur);
+            mon.setDate(cur.getDate() + diffToMon);
+            const fri = new Date(mon);
+            fri.setDate(mon.getDate() + 4);
+
+            document.getElementById('export-start-date').value = mon.toISOString().split('T')[0];
+            document.getElementById('export-end-date').value = fri.toISOString().split('T')[0];
+            document.getElementById('weekly-export-modal').style.display = 'flex';
+            generateWeeklySummaryBridge();
+        }
+
+        function closeWeeklyExportModal() {
+            document.getElementById('weekly-export-modal').style.display = 'none';
+        }
+
+        async function generateWeeklySummaryBridge() {
+            if (!db || !cryptoKey) return;
+
+            const startDate = document.getElementById('export-start-date').value;
+            const endDate = document.getElementById('export-end-date').value;
+
+            const tx = db.transaction('daily_records', 'readonly');
+            const store = tx.objectStore('daily_records');
+            const request = store.getAll();
+
+            request.onsuccess = async () => {
+                const records = request.result;
+                let completedTasks = [];
+                let deferredTasks = [];
+                let totalExecMins = 0;
+
+                for (const record of records) {
+                    if (record.date === 'GLOBAL_VISION') continue;
+                    if (record.date < startDate || record.date > endDate) continue;
+
+                    const decrypted = await decryptData(record.encryptedPayload);
+                    if (decrypted) {
+                        (decrypted.tasks || []).forEach(t => {
+                            if (t.status === 'V') completedTasks.push({ date: record.date, ...t });
+                            if (t.status === '→') deferredTasks.push({ date: record.date, ...t });
+                        });
+
+                        (decrypted.timeboxes || []).forEach(tb => {
+                            if (tb.gridColStart >= 4) { // Exec (수행) 컬럼
+                                const slots = tb.gridRowEnd - tb.gridRowStart;
+                                totalExecMins += slots * 30;
+                            }
+                        });
+                    }
+                }
+
+                const totalHours = (totalExecMins / 60).toFixed(1);
+                document.getElementById('stat-completed-count').textContent = completedTasks.length;
+                document.getElementById('stat-total-hours').textContent = totalHours;
+                document.getElementById('stat-deferred-count').textContent = deferredTasks.length;
+
+                // Build Markdown summary
+                let summaryMd = `[플래너 주간 집중 실행 실적 (${startDate} ~ ${endDate})]\n`;
+                if (completedTasks.length > 0) {
+                    completedTasks.forEach(t => {
+                        summaryMd += `• [완료] ${t.text} (${t.date})\n`;
+                    });
+                } else {
+                    summaryMd += `• 완료된 플래너 할 일 없음\n`;
+                }
+                summaryMd += `• 총 집중 업무 시간: ${totalHours}시간 (타임박스 실행 누적)`;
+
+                let issueMd = '';
+                if (deferredTasks.length > 0) {
+                    issueMd = `[플래너 연기/이슈 업무 (${startDate} ~ ${endDate})]\n`;
+                    deferredTasks.forEach(t => {
+                        issueMd += `• [연기] ${t.text} (${t.date})\n`;
+                    });
+                }
+
+                document.getElementById('weekly-summary-result').value = summaryMd;
+                document.getElementById('weekly-issue-result').value = issueMd;
+
+                // Auto save to localStorage bridge
+                const bridgePayload = {
+                    startDate,
+                    endDate,
+                    completedCount: completedTasks.length,
+                    totalHours,
+                    summaryMarkdown: summaryMd,
+                    issueMarkdown: issueMd,
+                    updatedAt: new Date().toISOString()
+                };
+                localStorage.setItem('franklin_weekly_summary_bridge', JSON.stringify(bridgePayload));
+                document.getElementById('bridge-save-status').textContent = '⚡ 로컬 브릿지에 자동 저장됨';
+            };
+        }
+
+        function saveWeeklySummaryBridge() {
+            const startDate = document.getElementById('export-start-date').value;
+            const endDate = document.getElementById('export-end-date').value;
+            const summaryMd = document.getElementById('weekly-summary-result').value;
+            const issueMd = document.getElementById('weekly-issue-result').value;
+
+            const bridgePayload = {
+                startDate,
+                endDate,
+                summaryMarkdown: summaryMd,
+                issueMarkdown: issueMd,
+                updatedAt: new Date().toISOString()
+            };
+            localStorage.setItem('franklin_weekly_summary_bridge', JSON.stringify(bridgePayload));
+            document.getElementById('bridge-save-status').textContent = '✅ 브릿지 저장 완료!';
+            alert('주간 실적 요약이 주간보고 시스템 브릿지에 저장되었습니다!\n\n주간 업무 보고 시스템의 [주간 실적 상세 등록 창]에서 [플래너 주간 기록 취합] 버튼을 누르면 즉시 자동 입력됩니다.');
+        }
+
+        function copyWeeklySummaryToClipboard() {
+            const summaryMd = document.getElementById('weekly-summary-result').value;
+            const issueMd = document.getElementById('weekly-issue-result').value;
+            const fullText = issueMd ? `${summaryMd}\n\n${issueMd}` : summaryMd;
+
+            navigator.clipboard.writeText(fullText).then(() => {
+                alert('클립보드에 실적 요약문이 복사되었습니다!');
+            }).catch(() => {
+                const ta = document.getElementById('weekly-summary-result');
+                ta.select();
+                document.execCommand('copy');
+                alert('클립보드에 복사되었습니다.');
+            });
         }
 
         // --- 초기 실행 ---
