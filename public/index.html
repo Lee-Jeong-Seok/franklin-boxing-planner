@@ -661,6 +661,13 @@
     <!-- Firebase SDK (Compat version for simplicity without bundler) -->
     <script src="https://www.gstatic.com/firebasejs/10.5.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.5.0/firebase-firestore-compat.js"></script>
+    <!-- CryptoJS (Insecure Context HTTP fallback) -->
+    <script src="vendor/crypto-js.min.js"></script>
+    <script>
+        if (!window.CryptoJS) {
+            document.write('<script src="https://cdn.jsdelivr.net/npm/crypto-js@4.2.0/crypto-js.min.js"><\/script>');
+        }
+    </script>
 </head>
 
 <body>
@@ -958,6 +965,7 @@
     <script>
         // --- 보안 및 데이터 관리 (Phase 1) ---
         let cryptoKey = null;
+        let currentPin = '';
         let db = null;
         let currentDate = new Date().toISOString().split('T')[0];
 
@@ -1070,17 +1078,30 @@
                 alert('4자리 이상의 PIN을 입력하세요.');
                 return;
             }
+            currentPin = pin;
 
             try {
-                // PBKDF2를 이용한 AES-GCM 키 생성
-                const enc = new TextEncoder();
-                const keyMaterial = await window.crypto.subtle.importKey(
-                    'raw', enc.encode(pin), { name: 'PBKDF2' }, false, ['deriveBits', 'deriveKey']
-                );
-                cryptoKey = await window.crypto.subtle.deriveKey(
-                    { name: 'PBKDF2', salt: enc.encode('franklin-salt'), iterations: 100000, hash: 'SHA-256' },
-                    keyMaterial, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
-                );
+                // 브라우저의 Web Crypto API 지원 및 Secure Context (HTTPS / localhost) 여부 판별
+                const hasSubtle = typeof window !== 'undefined' &&
+                                  window.crypto &&
+                                  Boolean(window.crypto.subtle) &&
+                                  window.isSecureContext !== false;
+
+                if (hasSubtle) {
+                    // PBKDF2를 이용한 AES-GCM 키 생성 (Secure Context: HTTPS / localhost)
+                    const enc = new TextEncoder();
+                    const keyMaterial = await window.crypto.subtle.importKey(
+                        'raw', enc.encode(pin), { name: 'PBKDF2' }, false, ['deriveBits', 'deriveKey']
+                    );
+                    cryptoKey = await window.crypto.subtle.deriveKey(
+                        { name: 'PBKDF2', salt: enc.encode('franklin-salt'), iterations: 100000, hash: 'SHA-256' },
+                        keyMaterial, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
+                    );
+                } else {
+                    // Insecure Context Fallback (HTTP 원격 접속 환경: dasm.iptime.org:3000 등)
+                    console.warn("비보안 환경(HTTP) 감지: CryptoJS 대체 암호화 엔진으로 초기화합니다.");
+                    cryptoKey = "CRYPTOJS_FALLBACK";
+                }
 
                 document.getElementById('pin-modal').style.display = 'none';
                 document.getElementById('main-app').style.display = 'flex';
@@ -1089,32 +1110,93 @@
                 await loadDataForDate(currentDate);
                 updateDateDisplay();
             } catch (e) {
+                console.error("보안 키 생성 오류:", e);
                 alert('보안 키 생성 실패: ' + e.message);
             }
         }
 
         // 2. 암호화 / 복호화 유틸리티
         async function encryptData(data) {
-            const enc = new TextEncoder();
-            const iv = window.crypto.getRandomValues(new Uint8Array(12));
-            const encrypted = await window.crypto.subtle.encrypt(
-                { name: 'AES-GCM', iv: iv }, cryptoKey, enc.encode(JSON.stringify(data))
-            );
-            return {
-                iv: Array.from(iv),
-                data: Array.from(new Uint8Array(encrypted))
-            };
+            const hasSubtle = typeof window !== 'undefined' &&
+                              window.crypto &&
+                              Boolean(window.crypto.subtle) &&
+                              window.isSecureContext !== false &&
+                              cryptoKey &&
+                              cryptoKey !== "CRYPTOJS_FALLBACK";
+
+            if (hasSubtle) {
+                const enc = new TextEncoder();
+                const iv = (window.crypto && window.crypto.getRandomValues)
+                    ? window.crypto.getRandomValues(new Uint8Array(12))
+                    : new Uint8Array(Array.from({ length: 12 }, () => Math.floor(Math.random() * 256)));
+                const encrypted = await window.crypto.subtle.encrypt(
+                    { name: 'AES-GCM', iv: iv }, cryptoKey, enc.encode(JSON.stringify(data))
+                );
+                return {
+                    mode: 'aes-gcm',
+                    iv: Array.from(iv),
+                    data: Array.from(new Uint8Array(encrypted))
+                };
+            } else {
+                // Insecure Context Fallback (CryptoJS AES-256)
+                if (window.CryptoJS) {
+                    const ciphertext = CryptoJS.AES.encrypt(JSON.stringify(data), currentPin).toString();
+                    return {
+                        mode: 'cryptojs',
+                        ciphertext: ciphertext
+                    };
+                } else {
+                    return {
+                        mode: 'base64',
+                        payload: btoa(encodeURIComponent(JSON.stringify(data)))
+                    };
+                }
+            }
         }
 
         async function decryptData(encryptedObj) {
             try {
-                const iv = new Uint8Array(encryptedObj.iv);
-                const data = new Uint8Array(encryptedObj.data);
-                const decrypted = await window.crypto.subtle.decrypt(
-                    { name: 'AES-GCM', iv: iv }, cryptoKey, data
-                );
-                const dec = new TextDecoder();
-                return JSON.parse(dec.decode(decrypted));
+                if (!encryptedObj) return null;
+
+                // 1. CryptoJS Fallback 암호화 데이터 복호화
+                if (encryptedObj.mode === 'cryptojs' || (encryptedObj.ciphertext && !encryptedObj.data)) {
+                    if (window.CryptoJS) {
+                        const bytes = CryptoJS.AES.decrypt(encryptedObj.ciphertext, currentPin);
+                        const decryptedStr = bytes.toString(CryptoJS.enc.Utf8);
+                        if (!decryptedStr) return null;
+                        return JSON.parse(decryptedStr);
+                    }
+                }
+
+                // 2. Base64 Fallback 데이터 복호화
+                if (encryptedObj.mode === 'base64' && encryptedObj.payload) {
+                    const jsonStr = decodeURIComponent(atob(encryptedObj.payload));
+                    return JSON.parse(jsonStr);
+                }
+
+                // 3. Web Crypto AES-GCM 암호화 데이터 복호화
+                if (encryptedObj.iv && encryptedObj.data) {
+                    const hasSubtle = typeof window !== 'undefined' &&
+                                      window.crypto &&
+                                      Boolean(window.crypto.subtle) &&
+                                      window.isSecureContext !== false &&
+                                      cryptoKey &&
+                                      cryptoKey !== "CRYPTOJS_FALLBACK";
+                    if (hasSubtle) {
+                        const iv = new Uint8Array(encryptedObj.iv);
+                        const data = new Uint8Array(encryptedObj.data);
+                        const decrypted = await window.crypto.subtle.decrypt(
+                            { name: 'AES-GCM', iv: iv }, cryptoKey, data
+                        );
+                        const dec = new TextDecoder();
+                        return JSON.parse(dec.decode(decrypted));
+                    } else {
+                        console.warn("HTTP 비보안 환경에서는 기존 Web Crypto(AES-GCM) 데이터를 복호화할 수 없습니다. HTTPS 환경으로 접속해 주세요.");
+                        return null;
+                    }
+                }
+
+                return null;
             } catch (e) {
                 console.error("복호화 실패 (잘못된 PIN 일수 있음)", e);
                 return null;
